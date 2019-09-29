@@ -24,6 +24,10 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* List of processes in THREAD_BLOCKED state, that is, processes
+   that are sleeping for certain ticks. */
+static struct list sleep_list;
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -92,6 +96,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&sleep_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -202,6 +207,69 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   return tid;
+}
+
+
+/* return the closest tick to wake up */
+int64_t
+get_wakeup_tick(void)
+{
+  if(list_empty(&sleep_list)) return INT64_MAX;
+  struct list_elem *e = list_begin(&sleep_list);
+  return list_entry(e,struct thread,elem)->wakeup_tick;
+}
+
+/* 낮은 tick 순서대로 정렬 */
+bool
+tick_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+{
+  const struct thread *a = list_entry(a_,struct thread, elem);
+  const struct thread *b = list_entry(b_,struct thread, elem);
+  
+  return a->wakeup_tick < b->wakeup_tick;
+}
+
+/* Thread를 ticks까지 sleep시킴 */
+void
+thread_sleep(int64_t ticks)
+{
+  struct thread *cur = thread_current (); // 현재 thread 불러옴
+
+  enum intr_level old_level; // 예전 interrupt 저장
+  old_level = intr_disable(); // interrupt 금지
+
+  ASSERT (!intr_context ()); // 외부 인터럽트여야 함
+ 
+  // idle thread가 아니라면 sleep list에 추가
+  if(cur != idle_thread){
+     cur->wakeup_tick = ticks;
+     // list에 빠른 tick 순서대로 insert.
+     list_insert_ordered (&sleep_list, &cur->elem,tick_less,NULL);
+     thread_block();
+  }
+  // interrupt 복구
+  intr_set_level(old_level);
+}
+
+/* Tick지난 threads 깨우기*/
+void
+thread_wakeup(int64_t cur_tick)
+{  
+  struct list_elem *e;
+  e = list_begin(&sleep_list);
+  /* thread 깨우기 */
+  while(e != list_end(&sleep_list))
+  {
+    struct thread *t = list_entry (e, struct thread, elem);
+    
+    // 깨워야 할 thread가 없다면break
+    if(cur_tick < t->wakeup_tick){
+        break;	
+    }
+    
+    e = list_remove(&t->elem);
+    thread_unblock(t);
+  }
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
