@@ -387,8 +387,10 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
+
+  // priority 가 큰 순으로 ready list 에 insert
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem,priority_less,NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);

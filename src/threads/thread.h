@@ -119,6 +119,7 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 int64_t get_wakeup_tick(void);
 bool tick_less(const struct list_elem *, const struct list_elem *, void *);
+bool priority_less(const struct list_elem *, const struct list_elem *, void *);
 void thread_sleep(int64_t ticks);
 void thread_wakeup(int64_t cur_tick);
 
