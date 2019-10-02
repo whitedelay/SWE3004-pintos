@@ -288,6 +288,16 @@ thread_block (void)
   schedule ();
 }
 
+/* thread의 priority에 따라 내림차 순 정렬 */
+bool
+priority_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+{
+  const struct thread *a = list_entry(a_,struct thread, elem);
+  const struct thread *b = list_entry(b_,struct thread, elem);
+
+  return a->priority > b->priority;
+}
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
@@ -305,7 +315,9 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  
+  // priotiry 내림차 순으로 ready queue에 넣기
+  list_insert_ordered (&ready_list, &t->elem, priority_less, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
