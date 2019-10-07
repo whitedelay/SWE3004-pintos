@@ -205,6 +205,8 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  // scheduling 하기
+  thread_yield();
 
   return tid;
 }
@@ -419,12 +421,8 @@ thread_set_priority (int new_priority)
 {
   thread_current ()->priority = new_priority;
   
-  // 현재 thread의 priority가 ready thread보다 낮아진다면 -> preemption
-  if(next_thread_to_run()->priority > thread_current()->priority)  
-  {
-    thread_yield();
-
-  }
+  // scheduling
+  thread_yield();
 }
 
 /* Returns the current thread's priority. */
