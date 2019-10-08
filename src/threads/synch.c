@@ -68,7 +68,8 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      // semapore waiting list에 priority 내림차순으로 insert. -> priority 순으로 깨어남
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem,priority_less,NULL);
       thread_block ();
     }
   sema->value--;
@@ -195,10 +196,25 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
-
+  
+  // lock donation
+  lock_donation(lock);
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
 }
+
+
+void
+lock_donation(struct lock *lock)
+{
+  // lock이 이미 걸려있고, 걸린 lock의 holder의 priority가 낮다면
+  if(lock->holder != NULL && lock->holder->priority < thread_current()->priority)
+  {  
+    lock->holder->origin_priority = lock->holder->priority;
+    lock->holder->priority = thread_current()->priority;
+  }
+}
+
 
 /* Tries to acquires LOCK and returns true if successful or false
    on failure.  The lock must not already be held by the current
@@ -231,8 +247,11 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  if(lock->holder->origin_priority != lock->holder->priority)
+    lock->holder->priority = lock->holder->origin_priority;
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  thread_yield();
 }
 
 /* Returns true if the current thread holds LOCK, false
