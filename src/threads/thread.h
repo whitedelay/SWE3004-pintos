@@ -88,7 +88,12 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
-    int origin_priority;
+
+					/* For priority donation*/
+    int original_priority;		/* priority before being donated */
+    struct list lock_list;		/* list of locks that the thread is holding */
+    struct lock *waiting_lock;		/* lock that the thread is waiting for */		    
+
     int64_t wakeup_tick;		/* 깨어나야 할 tick. */
     struct list_elem allelem;           /* List element for all threads list. */
     
@@ -120,7 +125,6 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 int64_t get_wakeup_tick(void);
 bool tick_less(const struct list_elem *, const struct list_elem *, void *);
-bool priority_less(const struct list_elem *, const struct list_elem *, void *);
 void thread_sleep(int64_t ticks);
 void thread_wakeup(int64_t cur_tick);
 
@@ -138,6 +142,7 @@ void thread_yield (void);
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
 
+bool priority_less(const struct list_elem *, const struct list_elem *, void *);
 int thread_get_priority (void);
 void thread_set_priority (int);
 
