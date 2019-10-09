@@ -187,7 +187,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
-
+  
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -550,7 +550,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   //
-  t->origin_priority = priority;
+  t->original_priority = priority;
+  t->waiting_lock = NULL;
+  list_init(&t->lock_list);
   //
   t->magic = THREAD_MAGIC;
 

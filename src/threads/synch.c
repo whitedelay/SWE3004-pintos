@@ -157,7 +157,6 @@ sema_test_helper (void *sema_)
       sema_up (&sema[1]);
     }
 }
-
 /* Initializes LOCK.  A lock can be held by at most a single
    thread at any given time.  Our locks are not "recursive", that
    is, it is an error for the thread currently holding a lock to
@@ -196,23 +195,39 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
-  
-  // lock donation
-  lock_donation(lock);
+
+  // lock을 다른 thread가 가지고 있다면
+  if(lock->holder != NULL)
+  {  
+    thread_current()->waiting_lock = lock;
+    priority_donation(lock,thread_current()->priority);
+  }
+
   sema_down (&lock->semaphore);
+  
+  /* acquire 이후 */
   lock->holder = thread_current ();
+  // thread의lock list에 lock 추가하기
+  list_insert_ordered(&thread_current()->lock_list,&lock->elem,priority_less,NULL);
+  thread_current()->waiting_lock = NULL; 
 }
 
 
 void
-lock_donation(struct lock *lock)
+priority_donation(struct lock *lock, int new_priority)
 {
-  // lock이 이미 걸려있고, 걸린 lock의 holder의 priority가 낮다면
-  if(lock->holder != NULL && lock->holder->priority < thread_current()->priority)
-  {  
-    lock->holder->origin_priority = lock->holder->priority;
-    lock->holder->priority = thread_current()->priority;
+  // 기다리는 thread의 priority는 lock을 가지고 있는 priority보다 높을 수 밖에 없으므로
+  // (낮았다면, lock을 가지고 있는 thread가 계속 가지고 있는것이 맞음.)
+  
+  lock->holder->priority = new_priority;
+  lock->donated_priority = new_priority;
+  
+  // lock을 가지고 있는 thread가 block된 상태라면
+  if(lock->holder->waiting_lock !=NULL)
+  {
+    priority_donation(lock->holder->waiting_lock,new_priority);
   }
+ 
 }
 
 
@@ -246,11 +261,18 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-
-  if(lock->holder->origin_priority != lock->holder->priority)
-    lock->holder->priority = lock->holder->origin_priority;
+  
+  // 가지고 있는 lock 빼기
+  list_remove(&lock->elem);
+  // 만약 이제 가지고 있는 lock이 없다면-> 원래 priority로 돌아가야 함
+  if(list_empty(&thread_current()->lock_list))
+    thread_current()->priority = thread_current()->original_priority;
+  else
+    thread_current()->priority =
+	list_entry(list_front(&thread_current()->lock_list),struct lock,elem)->donated_priority;
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  // lock 풀고 바로 scheduling
   thread_yield();
 }
 
