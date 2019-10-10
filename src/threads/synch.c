@@ -335,6 +335,16 @@ cond_init (struct condition *cond)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+bool
+cond_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct semaphore_elem *_a = list_entry(a,struct semaphore_elem, elem);
+  struct semaphore_elem *_b = list_entry(b,struct semaphore_elem, elem);
+  int pa = list_entry (list_front (&_a->semaphore.waiters), struct thread, elem)->priority;
+  int pb = list_entry (list_front (&_b->semaphore.waiters), struct thread, elem)->priority;
+  return pa > pb;
+}
+
 void
 cond_wait (struct condition *cond, struct lock *lock) 
 {
@@ -349,6 +359,8 @@ cond_wait (struct condition *cond, struct lock *lock)
   list_push_back (&cond->waiters, &waiter.elem);
   lock_release (lock);
   sema_down (&waiter.semaphore);
+  
+  // unblock 후
   lock_acquire (lock);
 }
 
@@ -366,7 +378,10 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
-
+  
+  //
+  list_sort(&cond->waiters,cond_priority_less,NULL);
+  //
   if (!list_empty (&cond->waiters)) 
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
