@@ -101,7 +101,7 @@ sema_try_down (struct semaphore *sema)
 
   return success;
 }
-
+ 
 /* Up or "V" operation on a semaphore.  Increments SEMA's value
    and wakes up one thread of those waiting for SEMA, if any.
 
@@ -119,6 +119,9 @@ sema_up (struct semaphore *sema)
                                 struct thread, elem));
   sema->value++;
   intr_set_level (old_level);
+  
+  // 바로 scheduling
+  thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
@@ -189,6 +192,13 @@ lock_init (struct lock *lock)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+
+bool
+donated_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  return list_entry(a,struct lock, elem)->donated_priority < list_entry(b,struct lock, elem)->donated_priority;
+}
+
 void
 lock_acquire (struct lock *lock)
 {
@@ -208,7 +218,7 @@ lock_acquire (struct lock *lock)
   /* acquire 이후 */
   lock->holder = thread_current ();
   // thread의lock list에 lock 추가하기
-  list_insert_ordered(&thread_current()->lock_list,&lock->elem,priority_less,NULL);
+  list_insert_ordered(&thread_current()->lock_list,&lock->elem,donated_priority_less,NULL);
   thread_current()->waiting_lock = NULL; 
 }
 
@@ -273,7 +283,7 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   sema_up (&lock->semaphore);
   // lock 풀고 바로 scheduling
-  thread_yield();
+  //thread_yield();
 }
 
 /* Returns true if the current thread holds LOCK, false

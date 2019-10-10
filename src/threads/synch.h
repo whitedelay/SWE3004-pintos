@@ -28,6 +28,7 @@ struct lock
 
 void lock_init (struct lock *);
 void lock_acquire (struct lock *);
+bool donated_priority_less(const struct list_elem *, const struct list_elem *,void *);
 void priority_donation (struct lock *,int priority);
 bool lock_try_acquire (struct lock *);
 void lock_release (struct lock *);
