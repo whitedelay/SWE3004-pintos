@@ -208,10 +208,11 @@ lock_acquire (struct lock *lock)
 
   // lock을 다른 thread가 가지고 있다면
   if(lock->holder != NULL)
-  {  
+  { 
     thread_current()->waiting_lock = lock;
-    priority_donation(lock,thread_current()->priority);
-  }
+    if(!thread_mlfqs)
+      priority_donation(lock,thread_current()->priority);
+   }
 
   sema_down (&lock->semaphore);
   
@@ -274,16 +275,17 @@ lock_release (struct lock *lock)
   
   // 가지고 있는 lock 빼기
   list_remove(&lock->elem);
-  // 만약 이제 가지고 있는 lock이 없다면-> 원래 priority로 돌아가야 함
-  if(list_empty(&thread_current()->lock_list))
-    thread_current()->priority = thread_current()->original_priority;
-  else
-    thread_current()->priority =
+  if(!thread_mlfqs)
+  {
+    // 만약 이제 가지고 있는 lock이 없다면-> 원래 priority로 돌아가야 함
+    if(list_empty(&thread_current()->lock_list))
+      thread_current()->priority = thread_current()->original_priority;
+    else
+      thread_current()->priority =
 	list_entry(list_front(&thread_current()->lock_list),struct lock,elem)->donated_priority;
+  }
   lock->holder = NULL;
   sema_up (&lock->semaphore);
-  // lock 풀고 바로 scheduling
-  //thread_yield();
 }
 
 /* Returns true if the current thread holds LOCK, false

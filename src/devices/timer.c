@@ -171,7 +171,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-
+  
   /* 깨울 thread를  확인하고, 있다면 깨우기 */
   if(get_wakeup_tick() <= ticks){
     thread_wakeup(ticks); 

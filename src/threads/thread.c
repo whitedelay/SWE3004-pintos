@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -23,6 +24,9 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+/* multi-level-feedback-queue */
+//static struct list mlfqs_list[PRI_MAX + 1];
 
 /* List of processes in THREAD_BLOCKED state, that is, processes
    that are sleeping for certain ticks. */
@@ -58,10 +62,17 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
+
+/* mlfqs */
+
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
+static int fp_factor = 1<<14; // fixed_point factor
 bool thread_mlfqs;
+int load_avg;
+
+/*********/
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -97,6 +108,12 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
   list_init (&sleep_list);
+  
+  /*if(thread_mlfqs)
+  {
+    for(int i=0;i<=PRI_MAX;i++)
+      list_init(&mlfqs_list[i]);
+  }*/
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -128,6 +145,29 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
+ 
+  /* mlfqs */ 
+  /* recalculate the priority of every thread */
+  if(thread_mlfqs)
+  {
+    t->recent_cpu += i_to_f(1);
+
+    // in each second
+    if(timer_ticks() % TIMER_FREQ == 0)
+    {
+      recal_load_avg();
+      thread_foreach(recal_recent_cpu,0);
+    }
+    // in every 4th tick
+    if(timer_ticks() % 4 == 0)
+    {
+      thread_foreach(recal_priority,0);
+      list_sort(&ready_list,priority_less,NULL);
+    }
+    // priority 바뀌었으므로, enforce preemption
+    if(t->priority < list_entry(list_begin(&ready_list),struct thread,elem)->priority)
+      intr_yield_on_return();
+  }
 
   /* Update statistics. */
   if (t == idle_thread)
@@ -318,8 +358,14 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   
+  /*
   // priotiry 내림차 순으로 ready queue에 넣기
-  list_insert_ordered (&ready_list, &t->elem, priority_less, NULL);
+  if(thread_mlfqs)
+    list_insert_ordered(&mlfqs_list[t->priority],&t->elem,priority_less,NULL);
+  else
+    list_insert_ordered (&ready_list, &t->elem, priority_less, NULL);
+  */
+  list_insert_ordered(&ready_list,&t->elem,priority_less,NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -389,10 +435,23 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
+  
+  /*
+  if(!thread_mlfqs)
+  {
+    // priority 가 큰 순으로 ready list 에 insert
+    if (cur != idle_thread) 
+      list_insert_ordered (&ready_list, &cur->elem,priority_less,NULL);
+  }
+  else
+  {
+    if(cur!=idle_thread)
+      list_push_back(&mlfqs_list[cur->priority],&cur->elem);
+  }
+  */
+  if(cur!=idle_thread)
+    list_insert_ordered (&ready_list,&cur->elem,priority_less,NULL);
 
-  // priority 가 큰 순으로 ready list 에 insert
-  if (cur != idle_thread) 
-    list_insert_ordered (&ready_list, &cur->elem,priority_less,NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -437,34 +496,95 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int new_nice) 
 {
-  /* Not yet implemented. */
+  thread_current()->nice = new_nice;
+  recal_priority(thread_current(),0);
+  
+  thread_yield();
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return f_to_i(100*load_avg);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return f_to_i(100*thread_current()->recent_cpu);
 }
+
+void
+recal_priority(struct thread *t, void *aux UNUSED)
+{
+  t->priority = PRI_MAX - f_to_i(t->recent_cpu/4) - (t->nice * 2);
+
+  // truncate the priority value
+  if(t->priority > PRI_MAX)
+    t->priority = PRI_MAX;
+  if(t->priority < PRI_MIN)
+    t->priority = PRI_MIN;
+  
+  
+}
+
+void
+recal_recent_cpu(struct thread *t, void *aux UNUSED)
+{
+  t->recent_cpu =
+	f_mul(f_div(2*load_avg,2*load_avg + i_to_f(1)),t->recent_cpu) + i_to_f(t->nice);
+}
+
+void recal_load_avg(void)
+{
+  int ready_threads = list_size(&ready_list);
+  //printf("ready_threads : %d\n",ready_threads);
+  int run_thread = (thread_current() == idle_thread)? 0 : 1; 
+  load_avg = f_mul((i_to_f(59)/60),load_avg) + ((i_to_f(1)/60)*(ready_threads+run_thread));
+  
+}
+
+/* fixed point operation */
+
+/* fixed point끼리 곱하고 나누기*/
+int f_mul(int x,int y)
+{
+  return ((int64_t)x)*y/fp_factor;
+}
+
+int f_div(int x,int y)
+{
+  return ((int64_t)x)*fp_factor/y;
+}
+
+/* fixed point -> integer */
+int f_to_i(int x)
+{
+  if(x>0)
+    x+=fp_factor/2;
+  else if(x<0)
+    x-=fp_factor/2;
+  
+  return x/fp_factor;
+}
+
+/* integer -> fixed point*/
+int i_to_f(int x) 
+{
+  return x*fp_factor;
+}
+
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -553,6 +673,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   //
+  t->nice =0;
+  t->recent_cpu=0;
   t->original_priority = priority;
   t->waiting_lock = NULL;
   list_init(&t->lock_list);
@@ -585,10 +707,14 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
+  if(list_empty (&ready_list))
     return idle_thread;
   else
+  {
+    list_sort(&ready_list,priority_less,NULL);
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  }
+
 }
 
 /* Completes a thread switch by activating the new thread's page

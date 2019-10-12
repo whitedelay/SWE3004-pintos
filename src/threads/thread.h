@@ -87,16 +87,20 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
 
 					/* For priority donation*/
     int original_priority;		/* priority before being donated */
+    int priority;
     struct list lock_list;		/* list of locks that the thread is holding */
     struct lock *waiting_lock;		/* lock that the thread is waiting for */		    
 
     int64_t wakeup_tick;		/* 깨어나야 할 tick. */
     struct list_elem allelem;           /* List element for all threads list. */
-    
+ 
+    /* For mlfqs */    
+    int nice;
+    int recent_cpu;
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -146,9 +150,18 @@ bool priority_less(const struct list_elem *, const struct list_elem *, void *);
 int thread_get_priority (void);
 void thread_set_priority (int);
 
+/* mlfqs */
+
+int i_to_f(int);
+int f_to_i(int);
+int f_mul(int,int);
+int f_div(int,int);
+
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
+void recal_priority(struct thread *t, void *aux);
+void recal_recent_cpu(struct thread *t,void *aux);
+void recal_load_avg(void);
 #endif /* threads/thread.h */
