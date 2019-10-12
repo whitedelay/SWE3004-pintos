@@ -193,6 +193,7 @@ lock_init (struct lock *lock)
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
 
+/* lock정렬시, lock의 donated_priority순으로 정렬 */
 bool
 donated_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
@@ -210,6 +211,8 @@ lock_acquire (struct lock *lock)
   if(lock->holder != NULL)
   { 
     thread_current()->waiting_lock = lock;
+    
+    // priority donation
     if(!thread_mlfqs)
       priority_donation(lock,thread_current()->priority);
    }
@@ -217,6 +220,7 @@ lock_acquire (struct lock *lock)
   sema_down (&lock->semaphore);
   
   /* acquire 이후 */
+
   lock->holder = thread_current ();
   // thread의lock list에 lock 추가하기
   list_insert_ordered(&thread_current()->lock_list,&lock->elem,donated_priority_less,NULL);
@@ -227,13 +231,11 @@ lock_acquire (struct lock *lock)
 void
 priority_donation(struct lock *lock, int new_priority)
 {
-  // 기다리는 thread의 priority는 lock을 가지고 있는 priority보다 높을 수 밖에 없으므로
-  // (낮았다면, lock을 가지고 있는 thread가 계속 가지고 있는것이 맞음.)
-  
+  // lock을 가진 thread와 해당 lock에 new_priority저장
   lock->holder->priority = new_priority;
   lock->donated_priority = new_priority;
   
-  // lock을 가지고 있는 thread가 block된 상태라면
+  // lock을 가지고 있는 thread가 block된 상태라면 그 thread에도 donation
   if(lock->holder->waiting_lock !=NULL)
   {
     priority_donation(lock->holder->waiting_lock,new_priority);
@@ -337,6 +339,8 @@ cond_init (struct condition *cond)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+
+/* condition속 semaphore_list의 waiters list도 priority 내림차 순으로 sorting */
 bool
 cond_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
@@ -381,9 +385,9 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
   
-  //
+  // priority 내림차순 sorting
   list_sort(&cond->waiters,cond_priority_less,NULL);
-  //
+  
   if (!list_empty (&cond->waiters)) 
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);

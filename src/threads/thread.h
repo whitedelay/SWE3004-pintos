@@ -90,7 +90,7 @@ struct thread
 
 					/* For priority donation*/
     int original_priority;		/* priority before being donated */
-    int priority;
+    int priority;			/* representative priority */
     struct list lock_list;		/* list of locks that the thread is holding */
     struct lock *waiting_lock;		/* lock that the thread is waiting for */		    
 
@@ -98,8 +98,8 @@ struct thread
     struct list_elem allelem;           /* List element for all threads list. */
  
     /* For mlfqs */    
-    int nice;
-    int recent_cpu;
+    int nice;				/* nice value */
+    int recent_cpu;			/* recent cpu value */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */

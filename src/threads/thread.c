@@ -107,13 +107,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
-  list_init (&sleep_list);
-  
-  /*if(thread_mlfqs)
-  {
-    for(int i=0;i<=PRI_MAX;i++)
-      list_init(&mlfqs_list[i]);
-  }*/
+  list_init (&sleep_list); 
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -256,7 +250,11 @@ thread_create (const char *name, int priority,
 int64_t
 get_wakeup_tick(void)
 {
+  // empty list면 안깨워도 되므로 max값 반환
   if(list_empty(&sleep_list)) return INT64_MAX;
+  
+  // sleep list는 빠른 tick순으로 정렬되어 있으므로,
+  // 첫번째 thread의 wake_up tick 반환
   struct list_elem *e = list_begin(&sleep_list);
   return list_entry(e,struct thread,elem)->wakeup_tick;
 }
@@ -276,20 +274,24 @@ void
 thread_sleep(int64_t ticks)
 {
   struct thread *cur = thread_current (); // 현재 thread 불러옴
+  
+  /* Interrupt 막음*/
+  enum intr_level old_level;
+  old_level = intr_disable();
 
-  enum intr_level old_level; // 예전 interrupt 저장
-  old_level = intr_disable(); // interrupt 금지
-
-  ASSERT (!intr_context ()); // 외부 인터럽트여야 함
+  ASSERT (!intr_context ());
  
   // idle thread가 아니라면 sleep list에 추가
   if(cur != idle_thread){
+     // wake_up해야하는 tick 저장
      cur->wakeup_tick = ticks;
      // list에 빠른 tick 순서대로 insert.
      list_insert_ordered (&sleep_list, &cur->elem,tick_less,NULL);
+
      thread_block();
   }
-  // interrupt 복구
+  
+  /* Interrupt level 복구 */
   intr_set_level(old_level);
 }
 
@@ -358,15 +360,10 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   
-  /*
-  // priotiry 내림차 순으로 ready queue에 넣기
-  if(thread_mlfqs)
-    list_insert_ordered(&mlfqs_list[t->priority],&t->elem,priority_less,NULL);
-  else
-    list_insert_ordered (&ready_list, &t->elem, priority_less, NULL);
-  */
+  // ready list에 priority 내림차순으로 insert 
   list_insert_ordered(&ready_list,&t->elem,priority_less,NULL);
   t->status = THREAD_READY;
+
   intr_set_level (old_level);
 }
 
@@ -433,27 +430,16 @@ thread_yield (void)
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
-
   old_level = intr_disable ();
-  
-  /*
-  if(!thread_mlfqs)
-  {
-    // priority 가 큰 순으로 ready list 에 insert
-    if (cur != idle_thread) 
-      list_insert_ordered (&ready_list, &cur->elem,priority_less,NULL);
-  }
-  else
-  {
-    if(cur!=idle_thread)
-      list_push_back(&mlfqs_list[cur->priority],&cur->elem);
-  }
-  */
+   
+
+  // 현재 thread가 idle thread 아니면 ready list priority 내림차순으로 insert
   if(cur!=idle_thread)
     list_insert_ordered (&ready_list,&cur->elem,priority_less,NULL);
-
-  cur->status = THREAD_READY;
+  
+  cur->status = THREAD_READY;  
   schedule ();
+  
   intr_set_level (old_level);
 }
 
@@ -478,11 +464,14 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  // original priority 변경
+  thread_current ()->original_priority = new_priority;
+
+  // priority donation을 받지 않았으면
+  // priority 값도 바꿈
   if(thread_current()->priority == thread_current()->original_priority)
     thread_current()->priority = new_priority;
-  
-  thread_current ()->original_priority = new_priority;
-  
+   
   // scheduling
   thread_yield();
 }
@@ -499,8 +488,11 @@ void
 thread_set_nice (int new_nice) 
 {
   thread_current()->nice = new_nice;
+  
+  // nice값이 변경되었으므로 priority도 recalculate
   recal_priority(thread_current(),0);
   
+  // scheduling
   thread_yield();
 }
 
@@ -548,9 +540,11 @@ recal_recent_cpu(struct thread *t, void *aux UNUSED)
 
 void recal_load_avg(void)
 {
+  // ready중인 thread 개수 구하기
   int ready_threads = list_size(&ready_list);
-  //printf("ready_threads : %d\n",ready_threads);
+  // running thread가 idle thread면 포함 x
   int run_thread = (thread_current() == idle_thread)? 0 : 1; 
+  
   load_avg = f_mul((i_to_f(59)/60),load_avg) + ((i_to_f(1)/60)*(ready_threads+run_thread));
   
 }
@@ -571,6 +565,7 @@ int f_div(int x,int y)
 /* fixed point -> integer */
 int f_to_i(int x)
 {
+  // rounding to nearest
   if(x>0)
     x+=fp_factor/2;
   else if(x<0)
@@ -711,6 +706,7 @@ next_thread_to_run (void)
     return idle_thread;
   else
   {
+    // ready_list 중 가장 높은 priority를 가진 thread 반환
     list_sort(&ready_list,priority_less,NULL);
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
   }
