@@ -157,10 +157,11 @@ thread_tick (void)
     {
       thread_foreach(recal_priority,0);
       list_sort(&ready_list,priority_less,NULL);
+    
+      // priority 바뀌었으므로, enforce preemption
+      if(t->priority < list_entry(list_begin(&ready_list),struct thread,elem)->priority)
+        intr_yield_on_return();
     }
-    // priority 바뀌었으므로, enforce preemption
-    if(t->priority < list_entry(list_begin(&ready_list),struct thread,elem)->priority)
-      intr_yield_on_return();
   }
 
   /* Update statistics. */
@@ -464,14 +465,14 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  // original priority 변경
-  thread_current ()->original_priority = new_priority;
-
   // priority donation을 받지 않았으면
   // priority 값도 바꿈
   if(thread_current()->priority == thread_current()->original_priority)
     thread_current()->priority = new_priority;
-   
+  
+  // original priority 변경
+  thread_current ()->original_priority = new_priority;
+ 
   // scheduling
   thread_yield();
 }
