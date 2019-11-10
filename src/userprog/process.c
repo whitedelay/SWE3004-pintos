@@ -15,11 +15,18 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+
+struct arguments{
+  int argc;
+  char **argv;
+ };
+
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static bool load (struct arguments *args, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -37,32 +44,51 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
-
+  
+  /* make arguments */
+  struct arguments * args = (struct arguments *)malloc(sizeof(struct arguments));
+  args->argv = palloc_get_page (0);
+  if (args->argv == NULL)
+    return TID_ERROR;
+  
+  args->argc =0;
+  
+  char * token, *save_ptr;
+  for (token = strtok_r (fn_copy, " ", &save_ptr); token != NULL;
+        token = strtok_r (NULL, " ", &save_ptr))
+     args->argv[args->argc++] = token;
+  
+  
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+  tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
+  if (tid == TID_ERROR){
+    palloc_free_page (fn_copy);
+    palloc_free_page (args->argv);
+    free(args);
+  } 
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *arguments)
 {
-  char *file_name = file_name_;
+  struct arguments *args = arguments;
   struct intr_frame if_;
   bool success;
-
+    
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (args, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (args->argv);
+  free(args);
+
   if (!success) 
     thread_exit ();
 
@@ -88,6 +114,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  for(int i=0;i<1500000;i++);
   return -1;
 }
 
@@ -195,7 +222,8 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, struct arguments * args);
+static void * push_arguments(struct arguments *args);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -206,7 +234,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (struct arguments *args, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -222,10 +250,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (args->argv[0]);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", args->argv[0]);
       goto done; 
     }
 
@@ -238,7 +266,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", args->argv[0]);
       goto done; 
     }
 
@@ -302,7 +330,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp,args))
     goto done;
 
   /* Start address. */
@@ -427,7 +455,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, struct arguments * args) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -437,11 +465,50 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        *esp = push_arguments(args);
       else
         palloc_free_page (kpage);
     }
   return success;
+}
+
+static void *
+push_arguments(struct arguments *args)
+{
+  printf("PUS ARG\n");
+  // 1 byte씩 접근
+  uint8_t *esp1 = (uint8_t *) PHYS_BASE;
+  uint32_t ** arg_addr = (uint32_t **)malloc(sizeof(uint32_t *)*(args->argc));
+  size_t total_length=0;
+  for(int i=0;i<args->argc;i++) total_length += strlen(args->argv[i])+1;
+  
+  int padding = 4 - (total_length % 4);
+  if(padding == 4) padding = 0;
+  
+  esp1 -= padding;
+  for(int i=0;i<padding;i++) *(esp1+i)=0;
+  for(int i=args->argc-1;i>=0;i--)
+  {
+    size_t argv_len = strlen(args->argv[i])+1;
+    esp1 -=argv_len;
+    memcpy(esp1,args->argv[i],argv_len+1);
+    arg_addr[i] = (uint32_t *)esp1;
+  }
+  
+  // 4 byte씩 접근
+  uint32_t *esp4 = (uint32_t *)esp1;
+  *(--esp4) = 0;
+  
+  for(int i=args->argc-1;i>=0;i--)
+    *(--esp4) = (uint32_t)arg_addr[i];
+  
+  *(--esp4) = (uint32_t)(esp4+1);
+  *(--esp4) = (uint32_t)args->argc;
+  *(--esp4) = 0;
+  
+  free(arg_addr);
+
+  return esp4;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
