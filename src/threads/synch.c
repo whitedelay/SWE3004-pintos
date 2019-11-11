@@ -121,7 +121,7 @@ sema_up (struct semaphore *sema)
   intr_set_level (old_level);
   
   // 바로 scheduling
-  thread_yield();
+  // thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
