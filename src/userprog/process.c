@@ -58,12 +58,12 @@ process_execute (const char *file_name)
         token = strtok_r (NULL, " ", &save_ptr))
      args->argv[args->argc++] = token;
   
+  //printf("%s %s\n",args->argv[0],args->argv[1]);
   
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR){
     palloc_free_page (fn_copy);
-    palloc_free_page (args->argv);
     free(args);
   } 
   return tid;
@@ -87,7 +87,7 @@ start_process (void *arguments)
 
   /* If load failed, quit. */
   palloc_free_page (args->argv);
-  free(args);
+  free (args);
 
   if (!success) 
     thread_exit ();
@@ -108,13 +108,12 @@ start_process (void *arguments)
    child of the calling process, or if process_wait() has already
    been successfully called for the given TID, returns -1
    immediately, without waiting.
-
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  for(int i=0;i<1500000;i++);
+  for(int i=0;i<1000000000;i++);
   return -1;
 }
 
@@ -396,15 +395,11 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 /* Loads a segment starting at offset OFS in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
    memory are initialized, as follows:
-
         - READ_BYTES bytes at UPAGE must be read from FILE
           starting at offset OFS.
-
         - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
-
    The pages initialized by this function must be writable by the
    user process if WRITABLE is true, read-only otherwise.
-
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
 static bool
@@ -464,8 +459,10 @@ setup_stack (void **esp, struct arguments * args)
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
+      if (success){
         *esp = push_arguments(args);
+	//printf("%p",*esp);
+      }
       else
         palloc_free_page (kpage);
     }
@@ -475,39 +472,44 @@ setup_stack (void **esp, struct arguments * args)
 static void *
 push_arguments(struct arguments *args)
 {
-  printf("PUS ARG\n");
   // 1 byte씩 접근
   uint8_t *esp1 = (uint8_t *) PHYS_BASE;
   uint32_t ** arg_addr = (uint32_t **)malloc(sizeof(uint32_t *)*(args->argc));
+
   size_t total_length=0;
   for(int i=0;i<args->argc;i++) total_length += strlen(args->argv[i])+1;
   
   int padding = 4 - (total_length % 4);
   if(padding == 4) padding = 0;
-  
+    
   esp1 -= padding;
   for(int i=0;i<padding;i++) *(esp1+i)=0;
+   
   for(int i=args->argc-1;i>=0;i--)
   {
     size_t argv_len = strlen(args->argv[i])+1;
     esp1 -=argv_len;
     memcpy(esp1,args->argv[i],argv_len+1);
     arg_addr[i] = (uint32_t *)esp1;
-  }
-  
-  // 4 byte씩 접근
+  } 
+
+  // 4 byte씩채우기
   uint32_t *esp4 = (uint32_t *)esp1;
+  
   *(--esp4) = 0;
   
+  // argv[i] 주소값 채우기
   for(int i=args->argc-1;i>=0;i--)
     *(--esp4) = (uint32_t)arg_addr[i];
   
-  *(--esp4) = (uint32_t)(esp4+1);
-  *(--esp4) = (uint32_t)args->argc;
-  *(--esp4) = 0;
-  
-  free(arg_addr);
+  *(--esp4) = (uint32_t) (esp4+1); // char **argv
+  *(--esp4) = (uint32_t) args->argc; // argc
+  *(--esp4) = 0; // return address
 
+  // for debugging
+  // hex_dump(esp4,esp4,40,true);
+
+  free (arg_addr);
   return esp4;
 }
 
