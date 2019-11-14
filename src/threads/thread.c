@@ -404,7 +404,7 @@ thread_tid (void)
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void
-thread_exit (void) 
+thread_exit () 
 {
   ASSERT (!intr_context ());
 

@@ -460,7 +460,6 @@ setup_stack (void **esp, struct arguments * args)
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success){
         *esp = push_arguments(args);
-	//printf("%p",*esp);
       }
       else
         palloc_free_page (kpage);
@@ -474,13 +473,15 @@ push_arguments(struct arguments *args)
   // 1 byte씩 접근
   uint8_t *esp1 = (uint8_t *) PHYS_BASE;
   uint32_t ** arg_addr = (uint32_t **)malloc(sizeof(uint32_t *)*(args->argc));
-
+  uint32_t *esp4;
   size_t total_length=0;
+  int padding;
+
   for(int i=0;i<args->argc;i++){
     total_length += strlen(args->argv[i])+1;
   }
 
-  int padding = 4 - (total_length % 4);
+  padding = 4 - (total_length % 4);
   if(padding == 4) padding = 0;
     
   esp1 -= padding;
@@ -496,17 +497,17 @@ push_arguments(struct arguments *args)
   
   //hex_dump(esp1,esp1,8,true);  
   // 4 byte씩채우기
-  uint32_t *esp4 = (uint32_t *)esp1;
-  
-  *(--esp4) = 0;
+  esp4 = (uint32_t *)esp1;
+ 
+  *--esp4 = 0;
   
   // argv[i] 주소값 채우기
   for(int i=args->argc-1;i>=0;i--)
-    *(--esp4) = (uint32_t)arg_addr[i];
+    *--esp4 = (uint32_t)arg_addr[i];
   
-  *(--esp4) = (uint32_t) (esp4+1); // char **argv
-  *(--esp4) = (uint32_t) args->argc; // argc
-  *(--esp4) = 0; // return address
+  *--esp4 = (uint32_t) (esp4+1); // char **argv
+  *--esp4 = (uint32_t) args->argc; // argc
+  *--esp4 = 0; // return address
 
   // for debugging
   // hex_dump(esp4,esp4,40,true);

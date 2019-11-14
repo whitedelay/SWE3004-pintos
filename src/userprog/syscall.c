@@ -13,27 +13,26 @@ syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
+bool is_valid_access(uint32_t * addr);
+
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   //printf ("system call!\n");
   uint32_t *esp = (uint32_t *)(f->esp); // system call #
   
-  if( esp >= (uint32_t *)PHYS_BASE){
-    //page_fault(f);
-    thread_exit();
-    return;
-  }
+  /* vefity esp */
+  if(!is_valid_access(esp)) return;
   
   int syscall_num = *esp;
  
-  //uint16_t result;
-  //printf("syscall #: %d\n",syscall_num); 
+  //printf("syscall: %d\n",syscall_num);
   switch(syscall_num){
     /* 0 argument */
     case SYS_HALT:
       break;
     case SYS_EXIT:
+      if(!is_valid_access(esp+1))return;
       exit(*(esp+1));
       break;
     case SYS_EXEC:
@@ -72,6 +71,18 @@ syscall_handler (struct intr_frame *f UNUSED)
   //f->eax = result;
 }
 
+// 1) access kernel space 2) access under user virtual addr
+bool
+is_valid_access(uint32_t *addr)
+{
+  if( addr >= (uint32_t *)PHYS_BASE || (uint32_t)addr<= 0x08048000){
+    exit(-1);
+    return false;
+  }
+  else
+    return true;
+}
+  
 
 void
 exit(int status)
@@ -82,6 +93,9 @@ exit(int status)
 
 int write(int fd, const void *buffer, unsigned size)
 {
+  printf("fd: %d\n",fd);
+  printf("ptr: %p\n",buffer);
+  printf("size: %d\n",size);
   // write to console
   if(fd==1)
     putbuf((char *)buffer,size);
