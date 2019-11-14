@@ -53,13 +53,12 @@ process_execute (const char *file_name)
   
   args->argc =0;
   
+  /* tokenization */
   char * token, *save_ptr;
   for (token = strtok_r (fn_copy, " ", &save_ptr); token != NULL;
-        token = strtok_r (NULL, " ", &save_ptr))
-     args->argv[args->argc++] = token;
-  
-  //printf("%s %s\n",args->argv[0],args->argv[1]);
-  
+        token = strtok_r (NULL, " ", &save_ptr)){
+    args->argv[args->argc++] = token; 
+  }
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR){
@@ -477,8 +476,10 @@ push_arguments(struct arguments *args)
   uint32_t ** arg_addr = (uint32_t **)malloc(sizeof(uint32_t *)*(args->argc));
 
   size_t total_length=0;
-  for(int i=0;i<args->argc;i++) total_length += strlen(args->argv[i])+1;
-  
+  for(int i=0;i<args->argc;i++){
+    total_length += strlen(args->argv[i])+1;
+  }
+
   int padding = 4 - (total_length % 4);
   if(padding == 4) padding = 0;
     
@@ -489,10 +490,11 @@ push_arguments(struct arguments *args)
   {
     size_t argv_len = strlen(args->argv[i])+1;
     esp1 -=argv_len;
-    memcpy(esp1,args->argv[i],argv_len+1);
+    memcpy(esp1,args->argv[i],argv_len);
     arg_addr[i] = (uint32_t *)esp1;
   } 
-
+  
+  //hex_dump(esp1,esp1,8,true);  
   // 4 byte씩채우기
   uint32_t *esp4 = (uint32_t *)esp1;
   
