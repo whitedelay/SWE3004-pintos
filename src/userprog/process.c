@@ -112,7 +112,7 @@ start_process (void *arguments)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  for(int i=0;i<1000000000;i++);
+  for(uint64_t i=0;i<3000000000;i++);
   return -1;
 }
 

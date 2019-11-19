@@ -107,6 +107,8 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct list file_list;		/* List of files that the threads open */
+    int next_fd;			/* next fd number  */
 #endif
 
     /* Owned by thread.c. */
