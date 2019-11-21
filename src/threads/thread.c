@@ -238,6 +238,14 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+#ifdef USERPROG
+  //printf("thread_create\n");
+  //sema_down(&t->wait_lock);
+  t->parent = thread_current();
+  //sema_down(&t->load_lock);
+  //printf("thread_create_done\n");
+#endif  
+
   /* Add to run queue. */
   thread_unblock (t);
   // scheduling 하기
@@ -676,7 +684,11 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->lock_list);
 #ifdef USERPROG
   list_init(&t->file_list);
+  list_init(&t->child_list);
   t->next_fd = 2;
+  sema_init(&t->wait_lock,0);
+  sema_init(&t->load_lock,0);
+  sema_init(&t->exit_lock,0);
 #endif
   //
   t->magic = THREAD_MAGIC;

@@ -3,10 +3,12 @@
 #include <syscall-nr.h>
 #include "lib/user/syscall.h"
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "devices/shutdown.h"
@@ -18,16 +20,13 @@ struct file_elem{
   int fd;
 };
 
-static struct lock filesys_lock;
-
 static void syscall_handler (struct intr_frame *);
 void check_valid_vaddr(uint32_t * vaddr);
 struct file_elem * find_file_by_fd(int fd);
 
 void
 syscall_init (void) 
-{ 
-  lock_init(filesys_lock);
+{  
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -48,7 +47,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       halt();
       break;
     case SYS_EXIT:
-      check_valid_vaddr(esp+1);:ㅂ
+      check_valid_vaddr(esp+1);
       exit(*(esp+1));
       break;
     case SYS_EXEC:
@@ -70,7 +69,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = filesize(*(int *)(esp+1));
       break;
     case SYS_READ:
-      check_valid_vaddr(*(esp+2));
+      check_valid_vaddr((uint32_t *)*(esp+2));
       f->eax = read(*(int *)(esp+1), (char *)*(esp+2), *(unsigned *)(esp+3));
       break;
     case SYS_WRITE:
@@ -90,7 +89,6 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
   }
    
-  //f->eax = result;
 }
 
 // check whether accessing kernel space
@@ -113,7 +111,7 @@ struct file_elem * find_file_by_fd(int fd)
   }
   return NULL;
 }
-
+ 
 void halt(void)
 {
   shutdown_power_off();
@@ -122,19 +120,23 @@ void halt(void)
 void
 exit(int status)
 {
+  struct thread * cur = thread_current();
   printf("%s: exit(%d)\n",thread_name(),status);
+  //sema_down(&cur->parent->exit_lock);
+  cur->exit_status = status;
   thread_exit();
 }
 
 pid_t exec(const char *cmd_line)
-{
-  pid_t pid = process_execute(cmd_line);
-  
+{ 
+  //printf("syscall - execute\n");
+  pid_t pid = process_execute(cmd_line); 
+  return pid; 
 }
 
 int wait(pid_t pid)
 {
-
+  return process_wait(pid);
 }
 
 bool
@@ -173,7 +175,7 @@ filesize(int fd)
 {
   struct file_elem * elem = find_file_by_fd(fd);
   if(elem!=NULL){
-    return inode_length(file_get_inode(elem->f));
+    return file_length(elem->f);
   } 
   return -1;
 }

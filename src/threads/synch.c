@@ -207,20 +207,20 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  #ifndef USERPROG
   // lock을 다른 thread가 가지고 있다면
   if(lock->holder != NULL)
   { 
     thread_current()->waiting_lock = lock;
-    
     // priority donation
     if(!thread_mlfqs)
       priority_donation(lock,thread_current()->priority);
    }
+  #endif
 
   sema_down (&lock->semaphore);
   
   /* acquire 이후 */
-
   lock->holder = thread_current ();
   // thread의lock list에 lock 추가하기
   list_insert_ordered(&thread_current()->lock_list,&lock->elem,donated_priority_less,NULL);
@@ -277,6 +277,7 @@ lock_release (struct lock *lock)
   
   // 가지고 있는 lock 빼기
   list_remove(&lock->elem);
+#ifndef USERPROG
   if(!thread_mlfqs)
   {
     // 만약 이제 가지고 있는 lock이 없다면-> 원래 priority로 돌아가야 함
@@ -286,6 +287,8 @@ lock_release (struct lock *lock)
       thread_current()->priority =
 	list_entry(list_front(&thread_current()->lock_list),struct lock,elem)->donated_priority;
   }
+#endif
+
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }

@@ -25,6 +25,7 @@ struct arguments{
   char **argv;
  };
 
+
 static thread_func start_process NO_RETURN;
 static bool load (struct arguments *args, void (**eip) (void), void **esp);
 
@@ -35,6 +36,7 @@ static bool load (struct arguments *args, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
+  struct thread *cur = thread_current();
   char *fn_copy;
   tid_t tid;
 
@@ -59,8 +61,25 @@ process_execute (const char *file_name)
         token = strtok_r (NULL, " ", &save_ptr)){
     args->argv[args->argc++] = token; 
   }
+  
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
+  tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args); 
+  //printf("after create %s(%d), sema down\n",args->argv[0],tid); 
+  sema_down(&cur->load_lock);
+
+  if(tid!=-1){
+    struct list *child_list = &cur->child_list;
+    for(struct list_elem *e = list_begin(child_list);e!=list_end(child_list);e=list_next(e))
+    {
+      struct thread *t = list_entry(e,struct thread,child_elem);
+      if(t->tid == tid && t->exit_status==-1){
+        sema_down(&t->wait_lock);
+        sema_up(&t->exit_lock);
+        return -1;
+      }  
+    } 
+  } 
+ 
   if (tid == TID_ERROR){
     palloc_free_page (fn_copy);
     free(args);
@@ -73,6 +92,7 @@ process_execute (const char *file_name)
 static void
 start_process (void *arguments)
 {
+  struct thread * cur = thread_current();
   struct arguments *args = arguments;
   struct intr_frame if_;
   bool success;
@@ -83,14 +103,23 @@ start_process (void *arguments)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (args, &if_.eip, &if_.esp);
-
+  
   /* If load failed, quit. */
   palloc_free_page (args->argv);
   free (args);
 
-  if (!success) 
-    thread_exit ();
+  sema_up(&cur->parent->load_lock); 
+  list_push_back(&cur->parent->child_list,&cur->child_elem);
+  /* If load failed, set exit status to 1, and release load lock */
+  if (!success){
+    cur->exit_status = -1;
+    //printf("load failed : %s sema up\n",thread_name());
+    thread_exit ();  
+  }
+  /* If success -> add child in parent's thread, and release load lock */
+  //printf("load succeed : %s sema up\n",thread_name());
 
+    
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -112,8 +141,29 @@ start_process (void *arguments)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  for(uint64_t i=0;i<3000000000;i++);
-  return -1;
+  //printf("wait for %d\n",child_tid); 
+  int exit_status = -1; 
+  struct list *child_list = &thread_current()->child_list;
+  
+  //printf("tid: %d\n");
+  for(struct list_elem *e = list_begin(child_list);e!=list_end(child_list);e=list_next(e))
+  {
+    struct thread *t = list_entry(e,struct thread,child_elem);
+    if(t->tid == child_tid)
+    {
+      //printf("sema down for %d's wait lock \n",child_tid);
+      sema_down(&t->wait_lock);
+      exit_status = t->exit_status;
+      list_remove(&t->child_elem); // child 제거
+      //printf("sema up for %d's exit lock, and exit code is %d\n",child_tid,exit_status);
+      sema_up(&t->exit_lock);
+      return exit_status;
+    }  
+  } 
+  return exit_status;
+  
+  /*for(uint64_t i =0;i<2000000000;i++);
+  return 0;*/
 }
 
 /* Free the current process's resources. */
@@ -122,7 +172,7 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -139,6 +189,10 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  sema_up(&cur->wait_lock);
+  //printf("trying %s to exit\n",thread_name());
+  sema_down(&cur->exit_lock);
+  //printf("%s exit complete\n",thread_name());
 }
 
 /* Sets up the CPU for running user code in the current

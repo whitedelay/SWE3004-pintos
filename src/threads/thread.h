@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -80,6 +81,7 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -92,7 +94,7 @@ struct thread
     int original_priority;		/* priority before being donated */
     int priority;			/* representative priority */
     struct list lock_list;		/* list of locks that the thread is holding */
-    struct lock *waiting_lock;		/* lock that the thread is waiting for */		    
+    struct lock *waiting_lock;		/* lock that the thread is waiting for */ 
 
     int64_t wakeup_tick;		/* 깨어나야 할 tick. */
     struct list_elem allelem;           /* List element for all threads list. */
@@ -108,12 +110,20 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct list file_list;		/* List of files that the threads open */
-    int next_fd;			/* next fd number  */
+    int next_fd;			/* Next fd number  */
+    struct semaphore wait_lock;
+    struct semaphore load_lock;
+    struct semaphore exit_lock;
+    struct thread * parent;
+    struct list child_list;		/* List of child processes */
+    struct list_elem child_elem;
+    int exit_status;
 #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
