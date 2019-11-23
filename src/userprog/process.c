@@ -25,6 +25,7 @@ struct arguments{
   char **argv;
  };
 
+extern struct semaphore filesys_lock;
 
 static thread_func start_process NO_RETURN;
 static bool load (struct arguments *args, void (**eip) (void), void **esp);
@@ -66,7 +67,8 @@ process_execute (const char *file_name)
   tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args); 
   //printf("after create %s(%d), sema down\n",args->argv[0],tid); 
   sema_down(&cur->load_lock);
-
+ 
+  /* load 확인 */
   if(tid!=-1){
     struct list *child_list = &cur->child_list;
     for(struct list_elem *e = list_begin(child_list);e!=list_end(child_list);e=list_next(e))
@@ -77,9 +79,10 @@ process_execute (const char *file_name)
         sema_up(&t->exit_lock);
         return -1;
       }  
-    } 
+    }
   } 
- 
+    
+  
   if (tid == TID_ERROR){
     palloc_free_page (fn_copy);
     free(args);
@@ -116,6 +119,7 @@ start_process (void *arguments)
     //printf("load failed : %s sema up\n",thread_name());
     thread_exit ();  
   }
+  
   /* If success -> add child in parent's thread, and release load lock */
   //printf("load succeed : %s sema up\n",thread_name());
 
@@ -193,6 +197,9 @@ process_exit (void)
   //printf("trying %s to exit\n",thread_name());
   sema_down(&cur->exit_lock);
   //printf("%s exit complete\n",thread_name());
+  
+  file_close(cur->open_file);  
+
 }
 
 /* Sets up the CPU for running user code in the current
@@ -302,12 +309,17 @@ load (struct arguments *args, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  sema_down(&filesys_lock);
   file = filesys_open (args->argv[0]);
   if (file == NULL) 
     {
+      sema_up(&filesys_lock);
       printf ("load: %s: open failed\n", args->argv[0]);
       goto done; 
     }
+  file_deny_write(file);
+  t->open_file = file;
+  sema_up(&filesys_lock);
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -392,7 +404,7 @@ load (struct arguments *args, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  //file_close (file);
   return success;
 }
 

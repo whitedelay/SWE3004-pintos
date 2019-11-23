@@ -150,10 +150,14 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
   
-  /* user가 잘못 참조해서 fault가 났다면exit */
-  if(!user || is_kernel_vaddr(fault_addr))
+   
+  if(!user ||is_kernel_vaddr(fault_addr))
     exit(-1);
   
+  if(user) {
+    exit(-1);
+    NOT_REACHED();
+  }
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */

@@ -5,7 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "synch.h"
-
+#include "filesys/file.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -110,6 +110,7 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct list file_list;		/* List of files that the threads open */
+    struct file *open_file;
     int next_fd;			/* Next fd number  */
     struct semaphore wait_lock;
     struct semaphore load_lock;
@@ -124,6 +125,13 @@ struct thread
     unsigned magic;                     /* Detects stack overflow. */
   };
 
+#ifdef USERPROG
+struct file_elem{
+  struct list_elem elem;
+  struct file * f;
+  int fd;
+};
+#endif
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
