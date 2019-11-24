@@ -15,7 +15,7 @@
 #include "devices/input.h"
 #include "filesys/off_t.h"
 
-
+// lock for file system
 struct semaphore filesys_lock;
 
 static void syscall_handler (struct intr_frame *);
@@ -76,7 +76,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = write(*(int *)(esp+1), (char *)*(esp+2), *(unsigned *)(esp+3));
       break;
     case SYS_SEEK:
-      seek(*(int *)(esp+1),*(unsigned *)(esp+3));
+      seek(*(int *)(esp+1),*(unsigned *)(esp+2));
       break;
     case SYS_TELL:
       f->eax = tell(*(int *)(esp+1));
@@ -100,6 +100,7 @@ check_valid_vaddr(void *vaddr)
   
 }
 
+// find file by file descriptor value
 struct file_elem * find_file_by_fd(int fd)
 {
   struct list * file_list = &thread_current()->file_list;
@@ -124,14 +125,12 @@ exit(int status)
 {
   struct thread * cur = thread_current();
   printf("%s: exit(%d)\n",thread_name(),status);
-  //sema_down(&cur->parent->exit_lock);
   cur->exit_status = status;
   thread_exit();
 }
 
 pid_t exec(const char *cmd_line)
 { 
-  //printf("syscall - execute\n");
   pid_t pid = process_execute(cmd_line); 
   return pid; 
 }
@@ -168,7 +167,7 @@ open(const char *file)
   
   if(file==NULL) return -1;
   sema_down(&filesys_lock);
-  //printf("open : %s\n",file);
+  //printf("%s open %s\n",thread_name(),file);
   struct file * f = filesys_open(file);
   if(f){   
     /* add file to file_list in this thread */
@@ -177,7 +176,10 @@ open(const char *file)
     fe->f = f;
     list_push_back(&thread_current()->file_list,&fe->elem);
     
-    //file_deny_write(f);
+    /* 현재 exec되는 process가 exec중인 파일을 open한다면*/
+    if(!strcmp(thread_name(),file))
+      file_deny_write(f);
+    
     sema_up(&filesys_lock);
     return fe->fd;
   }
@@ -189,9 +191,9 @@ int
 filesize(int fd)
 {
   sema_down(&filesys_lock);
-  struct file_elem * elem = find_file_by_fd(fd);
-  if(elem!=NULL){
-    int res = file_length(elem->f);
+  struct file_elem * fe = find_file_by_fd(fd);
+  if(fe!=NULL){
+    int res = file_length(fe->f);
     sema_up(&filesys_lock);
     return res;
   }
@@ -211,12 +213,9 @@ int read(int fd, void *buffer, unsigned size)
     return size;
   }
    
-  struct file_elem * elem = find_file_by_fd(fd);
-  //check_valid_vaddr(buffer);
-  if(elem!=NULL){ 
-    //file_deny_write(elem->f);
-    size = file_read(elem->f,buffer,size);
-    //file_allow_write(elem->f);
+  struct file_elem * fe = find_file_by_fd(fd);
+  if(fe!=NULL){ 
+    size = file_read(fe->f,buffer,size);
     sema_up(&filesys_lock);
     return size;
   }
@@ -232,11 +231,10 @@ int write(int fd, const void *buffer, unsigned size)
     sema_up(&filesys_lock);
     return size;
   }
-  struct file_elem * elem = find_file_by_fd(fd);
+  struct file_elem * fe = find_file_by_fd(fd);
   
-  //check_valid_vaddr(buffer);
-  if(elem!=NULL){
-    int res = file_write(elem->f,buffer,size); 
+  if(fe!=NULL){
+    int res = file_write(fe->f,buffer,size); 
     sema_up(&filesys_lock);
     return res;
   }
@@ -246,20 +244,20 @@ int write(int fd, const void *buffer, unsigned size)
 
 void seek(int fd, unsigned position)
 {
-  struct file_elem *elem = find_file_by_fd(fd);
-  if(elem!=NULL){
+  struct file_elem *fe = find_file_by_fd(fd);
+  if(fe!=NULL){
     sema_down(&filesys_lock);
-    file_seek(elem->f, position);
+    file_seek(fe->f, position);
     sema_up(&filesys_lock);
   }
 }
 
 unsigned tell(int fd)
 {
-  struct file_elem * elem = find_file_by_fd(fd);
-  if(elem!=NULL){
+  struct file_elem * fe = find_file_by_fd(fd);
+  if(fe!=NULL){
     sema_down(&filesys_lock);
-    unsigned res = file_tell(elem->f);
+    unsigned res = file_tell(fe->f);
     sema_up(&filesys_lock);
     return res;
   }
@@ -268,13 +266,13 @@ unsigned tell(int fd)
 
 void close(int fd)
 {
-  struct file_elem *elem = find_file_by_fd(fd);
-  if(elem!=NULL){
+  struct file_elem *fe = find_file_by_fd(fd);
+  if(fe!=NULL){
     sema_down(&filesys_lock);
-    file_close(elem->f);
+    file_close(fe->f);
+    list_remove(&fe->elem);
+    free(fe);
     sema_up(&filesys_lock);
-    list_remove(&elem->elem);
-    free(elem);
   }
 }
 
