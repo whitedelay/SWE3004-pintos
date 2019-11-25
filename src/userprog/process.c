@@ -77,17 +77,15 @@ process_execute (const char *file_name)
         sema_down(&t->wait_lock);
         list_remove(&t->child_elem);
         sema_up(&t->exit_lock);
-        return -1;
+        tid = -1;
+        break;
       }  
     }
   } 
     
   
-  if (tid == TID_ERROR){
-    palloc_free_page (fn_copy);
-    palloc_free_page (args->argv);
-    free(args);
-  } 
+  palloc_free_page (fn_copy);
+  
   return tid;
 }
 
@@ -108,10 +106,11 @@ start_process (void *arguments)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (args, &if_.eip, &if_.esp);
   
-  /* If load failed, quit. */
+  /* memory free */
   palloc_free_page (args->argv);
   free (args);
 
+  /* release load lock */
   sema_up(&cur->parent->load_lock);
 
   /* child 추가 */ 
@@ -173,14 +172,24 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd; 
+ 
+  /*struct list *child_list = &cur->child_list; 
+  for(struct list_elem *e = list_begin(child_list);e!=list_end(child_list);e=list_next(e))
+  {
+    struct thread *child = list_entry(e,struct thread,child_elem);
+      sema_down(&child->wait_lock);
+      //exit_status = child->exit_status;
+      list_remove(&child->child_elem); // child 제거
+      sema_up(&child->exit_lock);
+  } */
 
   struct list * file_list = &thread_current()->file_list; 
   for(struct list_elem * e = list_begin(file_list); e!=list_end(file_list);)
   { 
-    struct file_elem * fe = list_entry(e,struct file_elem,elem);
-    e = list_next(e);
+    struct file_elem * fe = list_entry(e,struct file_elem,elem);  
     file_close(fe->f);
     list_remove(&fe->elem);
+    e = list_next(e);
     free(fe);
   }
 
@@ -575,7 +584,7 @@ push_arguments(struct arguments *args)
 
   // for debugging
   // hex_dump(esp4,esp4,40,true);
-
+  
   free (arg_addr);
   return esp4;
 }
