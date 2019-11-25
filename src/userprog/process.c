@@ -75,6 +75,7 @@ process_execute (const char *file_name)
       struct thread *t = list_entry(e,struct thread,child_elem);
       if(t->tid == tid && t->exit_status==-1){
         sema_down(&t->wait_lock);
+        list_remove(&t->child_elem);
         sema_up(&t->exit_lock);
         return -1;
       }  
@@ -310,16 +311,13 @@ load (struct arguments *args, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  sema_down(&filesys_lock);
   file = filesys_open (args->argv[0]);
   if (file == NULL) 
     {
-      sema_up(&filesys_lock);
       printf ("load: %s: open failed\n", args->argv[0]);
       goto done; 
     
     }
-  sema_up(&filesys_lock);
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
