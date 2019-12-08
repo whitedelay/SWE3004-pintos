@@ -120,6 +120,8 @@ struct thread
     int exit_status;
 #endif
 
+    void *cur_esp;
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

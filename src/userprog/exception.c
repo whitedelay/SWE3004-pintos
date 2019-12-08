@@ -6,6 +6,9 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
+
+#include "userprog/pagedir.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -91,7 +94,7 @@ kill (struct intr_frame *f)
       printf ("%s: dying due to interrupt %#04x (%s).\n",
               thread_name (), f->vec_no, intr_name (f->vec_no));
       intr_dump_frame (f);
-      thread_exit (); 
+      exit (-1); 
 
     case SEL_KCSEG:
       /* Kernel's code segment, which indicates a kernel bug.
@@ -106,7 +109,7 @@ kill (struct intr_frame *f)
          kernel. */
       printf ("Interrupt %#04x (%s) in unknown segment %04x\n",
              f->vec_no, intr_name (f->vec_no), f->cs);
-      thread_exit ();
+      exit (-1);
     }
 }
 
@@ -149,13 +152,30 @@ page_fault (struct intr_frame *f)
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
+ 
+  void * fault_page = (void *) pg_round_down(fault_addr);    
+  struct thread * cur = thread_current();     
+  void *esp = user? f->esp : cur->cur_esp;
+
+  /* Project 3 */ 
    
-  if(user) {
+  if(esp <= fault_addr || fault_addr == f->esp -4 || fault_addr == f->esp-32){
+    if(PHYS_BASE - 0x800000 <= fault_addr && fault_addr <= PHYS_BASE){  
+      // esp보다 위에 있는 경우 - fault 아님 
+      uint8_t *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+      if(kpage==NULL) exit(-1);
+      if(!is_user_vaddr(fault_page)) exit(-1);
+      if(pagedir_get_page(cur->pagedir,fault_page) == NULL) 
+        pagedir_set_page(cur->pagedir,fault_page,kpage,true);
+      
+      return;
+      }
+    }
+ 
+
+  if(!user || is_kernel_vaddr(fault_addr)){
     exit(-1);
-    NOT_REACHED();
   }
-  if(!user ||is_kernel_vaddr(fault_addr))
-    exit(-1);
   
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

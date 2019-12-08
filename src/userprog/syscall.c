@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include "lib/user/syscall.h"
 #include "userprog/syscall.h"
@@ -34,7 +35,9 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   //printf ("system call!\n");
   uint32_t *esp = f->esp; // system call #
-  
+
+  thread_current()->cur_esp = f->esp; 
+
   /* vefity esp */
   check_valid_vaddr(esp);
   
