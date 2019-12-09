@@ -119,9 +119,9 @@ struct thread
     struct list_elem child_elem;
     int exit_status;
 #endif
-
+#ifdef VM
     void *cur_esp;
-
+#endif
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
